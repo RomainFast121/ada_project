@@ -338,28 +338,3 @@ def show_pair_timeline(events, links, follow_up):
     ax.legend(loc="upper right", ncol=2)
     fig.tight_layout()
     plt.show()
-
-def show_mutual_negativity(links):
-    """Classify active reciprocal pairs by whether negativity occurs in neither, one, or both directions."""
-    # Summarize the entire observed history in each direction.
-    directions = links.groupby(["pair_a", "pair_b", "SOURCE_SUBREDDIT"]).agg(
-        links=("LINK_SENTIMENT", "size"),
-        negative_links=("LINK_SENTIMENT", lambda x: x.eq(-1).sum()),
-    ).reset_index()
-    directions["negative_share"] = directions["negative_links"] / directions["links"]
-    active = directions.loc[directions["links"].ge(5)].copy()
-    active["negative_direction"] = active["negative_share"].ge(0.20)
-    pairs_both = active.groupby(["pair_a", "pair_b"]).filter(lambda x: len(x) == 2)
-    pair_types = pairs_both.groupby(["pair_a", "pair_b"])["negative_direction"].sum().map(
-        {0: "Neither direction", 1: "One direction", 2: "Both directions"})
-    counts = pair_types.value_counts().reindex(
-        ["Neither direction", "One direction", "Both directions"], fill_value=0)
-    print(f"Active reciprocal pairs: {len(pair_types):,}")
-    display(pd.DataFrame({"pairs": counts, "share": counts / counts.sum()}).style.format({"share": "{:.2%}"}))
-
-    # Compare link shares on the same unit: links in active reciprocal pairs versus all links.
-    active_negative_share = pairs_both["negative_links"].sum() / pairs_both["links"].sum()
-    overall_negative_share = links["LINK_SENTIMENT"].eq(-1).mean()
-    print(f"Negative links in active reciprocal pairs: {active_negative_share:.2%}")
-    print(f"Negative links in the full dataset: {overall_negative_share:.2%}")
-
