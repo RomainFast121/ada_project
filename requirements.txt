@@ -1,0 +1,11 @@
+# Tested with Python 3.13 in the ada environment.
+numpy>=2.0,<3
+pandas>=2.2,<3
+scipy>=1.14,<2
+matplotlib>=3.8,<4
+seaborn>=0.13,<0.14
+statsmodels>=0.14,<0.16
+ipython>=8,<10
+ipykernel>=6,<8
+jupyterlab>=4,<5
+nbconvert>=7,<8

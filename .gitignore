@@ -1,5 +1,6 @@
 # Large source datasets (download instructions and checksums are in README.md)
 data/raw/*.tsv
+data/raw/web-redditEmbeddings-subreddits.csv
 
 # Notebook and Python-generated files
 .ipynb_checkpoints/

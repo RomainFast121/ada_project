@@ -47,6 +47,37 @@ def ensure_link_data(data_dir=Path("data/raw"), base_url="https://snap.stanford.
     return data_dir
 
 
+EMBEDDINGS_NAME = "web-redditEmbeddings-subreddits.csv"
+EMBEDDINGS_SHA256 = "73a06008192a7ddf94f81e5ce944ce11b20d24ac3b236ad80c2962a28f6b7742"
+
+
+def ensure_embedding_data(data_dir=Path("data/raw"),
+                          base_url="https://snap.stanford.edu/data",
+                          checksum=EMBEDDINGS_SHA256):
+    """Download the subreddit embeddings if missing, and verify the new file."""
+    data_dir = Path(data_dir)
+    data_dir.mkdir(parents=True, exist_ok=True)
+    path = data_dir / EMBEDDINGS_NAME
+    if path.is_file():
+        return path
+
+    url = f"{base_url.rstrip('/')}/{EMBEDDINGS_NAME}"
+    temporary = data_dir / f".{EMBEDDINGS_NAME}.part"
+    print(f"Downloading {EMBEDDINGS_NAME} from {url}")
+    try:
+        digest = sha256()
+        with urlopen(url) as response, temporary.open("wb") as output:
+            for chunk in iter(lambda: response.read(1024 * 1024), b""):
+                output.write(chunk)
+                digest.update(chunk)
+        if digest.hexdigest() != checksum:
+            raise ValueError(f"Checksum mismatch for {EMBEDDINGS_NAME}; check the URL and checksum")
+        temporary.replace(path)
+    finally:
+        temporary.unlink(missing_ok=True)
+    return path
+
+
 def load_links(data_dir=Path("data/raw")):
     """Read title and body TSV files with explicit column types; return one link table."""
     data_dir = ensure_link_data(data_dir)
@@ -569,7 +600,7 @@ def cosine_similarity(a, b):
 
 def add_embedding_similarity(valid_pairs, data_dir=Path("data/raw")):
     """Load subreddit embeddings, merge with valid_pairs, and compute cosine similarity."""
-    path_emb = Path(data_dir) / "web-redditEmbeddings-subreddits.csv"
+    path_emb = ensure_embedding_data(data_dir)
     embeddings = pd.read_csv(path_emb, dtype="string", header=None)
     embeddings.columns = ["subreddit"] + [f"emb_{i}" for i in range(300)]
     embeddings["embedding"] = embeddings.iloc[:, 1:].apply(lambda row: row.tolist(), axis=1)
