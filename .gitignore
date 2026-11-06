@@ -6,3 +6,4 @@ data/raw/web-redditEmbeddings-subreddits.csv
 .ipynb_checkpoints/
 __pycache__/
 .DS_Store
+.venv/
