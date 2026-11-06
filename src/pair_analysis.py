@@ -5,6 +5,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 import seaborn as sns
+from scipy import stats
 import statsmodels.formula.api as smf
 from statsmodels.stats.proportion import proportion_confint
 from IPython.display import display
@@ -44,6 +45,37 @@ def ensure_link_data(data_dir=Path("data/raw"), base_url="https://snap.stanford.
         finally:
             temporary.unlink(missing_ok=True)
     return data_dir
+
+
+EMBEDDINGS_NAME = "web-redditEmbeddings-subreddits.csv"
+EMBEDDINGS_SHA256 = "73a06008192a7ddf94f81e5ce944ce11b20d24ac3b236ad80c2962a28f6b7742"
+
+
+def ensure_embedding_data(data_dir=Path("data/raw"),
+                          base_url="https://snap.stanford.edu/data",
+                          checksum=EMBEDDINGS_SHA256):
+    """Download the subreddit embeddings if missing, and verify the new file."""
+    data_dir = Path(data_dir)
+    data_dir.mkdir(parents=True, exist_ok=True)
+    path = data_dir / EMBEDDINGS_NAME
+    if path.is_file():
+        return path
+
+    url = f"{base_url.rstrip('/')}/{EMBEDDINGS_NAME}"
+    temporary = data_dir / f".{EMBEDDINGS_NAME}.part"
+    print(f"Downloading {EMBEDDINGS_NAME} from {url}")
+    try:
+        digest = sha256()
+        with urlopen(url) as response, temporary.open("wb") as output:
+            for chunk in iter(lambda: response.read(1024 * 1024), b""):
+                output.write(chunk)
+                digest.update(chunk)
+        if digest.hexdigest() != checksum:
+            raise ValueError(f"Checksum mismatch for {EMBEDDINGS_NAME}; check the URL and checksum")
+        temporary.replace(path)
+    finally:
+        temporary.unlink(missing_ok=True)
+    return path
 
 
 def load_links(data_dir=Path("data/raw")):
@@ -338,3 +370,276 @@ def show_pair_timeline(events, links, follow_up):
     ax.legend(loc="upper right", ncol=2)
     fig.tight_layout()
     plt.show()
+
+
+# ==============================================================================
+# Section 1: Origin of negativity (Research Question 1)
+# ==============================================================================
+
+def show_sentiment_by_location(links):
+    """Compute and display non-negative link share and 95% CI by post location (body vs title)."""
+    stat = links.groupby("LOCATION", observed=True)["LINK_SENTIMENT"].agg(
+        count="count",
+        positive_per=lambda s: (s == 1).mean()
+    )
+    stat["se"] = np.sqrt(stat["positive_per"] * (1 - stat["positive_per"]) / stat["count"])
+    stat["ci_lower"] = stat["positive_per"] - 1.96 * stat["se"]
+    stat["ci_upper"] = stat["positive_per"] + 1.96 * stat["se"]
+    print(stat[["count", "positive_per", "ci_lower", "ci_upper"]])
+    return stat
+
+
+def select_valid_origin_pairs(links, margin_days=60):
+    """Annotate pair positions and filter pairs whose first link occurs within the 60-day interior window."""
+    pair = links.groupby(["pair_a", "pair_b"], sort=False)
+    links["position_in_pair"] = pair.cumcount()
+    links["first_sentiment"] = pair["LINK_SENTIMENT"].transform("first")
+    links["first_source"] = pair["SOURCE_SUBREDDIT"].transform("first")
+
+    delta = pd.Timedelta(margin_days, unit="D")
+    links["first_time"] = pair["time"].transform("first")
+
+    start_date = links["time"].min() + delta
+    end_date = links["time"].max() - delta
+
+    valid_pairs = links[(links["first_time"] >= start_date) & (links["first_time"] <= end_date)].copy()
+    return links, valid_pairs
+
+
+def analyze_and_plot_response_time(data_subset, title_suffix):
+    """Fit an exponential distribution to the time interval between the 1st and 2nd links and plot."""
+    pivot_times = data_subset.pivot(
+        index=["pair_a", "pair_b"], columns="position_in_pair", values="time"
+    )
+    time_diff = (pivot_times[1] - pivot_times[0])
+    data = time_diff.dropna().dt.total_seconds() / 86400
+
+    loc, scale = stats.expon.fit(data, floc=0)
+    mean_response_time = scale
+    lambda_param = 1.0 / scale
+    median_response_time = np.log(2) / lambda_param
+
+    print(f"--- Exponential Fit Results: {title_suffix} ---")
+    print(f"Lambda rate: {lambda_param:.5f} per day")
+    print(f"Mean response time (1/lambda): {mean_response_time:.2f} days")
+    print(f"Estimated median time: {median_response_time:.2f} days")
+    print(f"Empirical median time (from data): {data.median():.2f} days\n")
+
+    plt.figure(figsize=(9, 5))
+    plt.hist(
+        data,
+        bins=50,
+        density=True,
+        color="#2b5c8f",
+        edgecolor="black",
+        alpha=0.6,
+        label="Observed Data",
+    )
+    x_vals = np.linspace(0, data.max(), 500)
+    pdf_fitted = stats.expon.pdf(x_vals, loc=0, scale=scale)
+    plt.plot(
+        x_vals,
+        pdf_fitted,
+        "r-",
+        linewidth=2,
+        label=r"Exponential Fit ($\mu={:.1f}$ days)".format(mean_response_time),
+    )
+    plt.title(
+        f"Time to Second Link Distribution and Exponential Fit ({title_suffix})",
+        fontsize=13,
+        fontweight="bold",
+    )
+    plt.xlabel("Time to Second Link (days)", fontsize=11)
+    plt.ylabel("Probability Density", fontsize=11)
+    plt.legend(fontsize=11)
+    plt.grid(True, linestyle="--", alpha=0.5)
+    plt.tight_layout()
+    plt.show()
+
+
+def show_response_time_by_sentiment(valid_pairs):
+    """Compare time intervals between the first two links by initial link sentiment."""
+    first_two = valid_pairs[valid_pairs["position_in_pair"].isin([0, 1])]
+    first_two_pos = first_two[first_two["first_sentiment"] == 1]
+    first_two_neg = first_two[first_two["first_sentiment"] == -1]
+    analyze_and_plot_response_time(first_two_pos, "Positive Initial Sentiment")
+    analyze_and_plot_response_time(first_two_neg, "Negative Initial Sentiment")
+
+
+def show_response_time_by_location(valid_pairs):
+    """Compare time intervals between the first two links by initial link location (body vs title)."""
+    first_two = valid_pairs[valid_pairs["position_in_pair"].isin([0, 1])].copy()
+    first_two["first_location"] = first_two.groupby(["pair_a", "pair_b"], sort=False)["LOCATION"].transform("first")
+    first_two_body = first_two[first_two["first_location"] == "body"]
+    first_two_title = first_two[first_two["first_location"] == "title"]
+    analyze_and_plot_response_time(first_two_body, "First Link in Body")
+    analyze_and_plot_response_time(first_two_title, "First Link in Title")
+
+
+def show_negativity_origin_positions(valid_pairs):
+    """Identify whether negativity in an observed pair history appears on the first link or after earlier links."""
+    neg_links = valid_pairs[valid_pairs["LINK_SENTIMENT"] == -1].copy()
+    first_neg_per_pair = neg_links.drop_duplicates(subset=["pair_a", "pair_b"], keep="first")
+
+    late_neg_pairs = first_neg_per_pair[first_neg_per_pair["position_in_pair"] > 0]
+    count_late_neg = len(late_neg_pairs)
+
+    immediate_neg_pairs = first_neg_per_pair[first_neg_per_pair["position_in_pair"] == 0]
+    count_immediate_neg = len(immediate_neg_pairs)
+
+    print(f"Total pairs with at least one negative link: {len(first_neg_per_pair):,}")
+    print(f"First negative link at position > 0 (delayed negativity): {count_late_neg:,}")
+    print(f"First negative link at position == 0 (hostile first contact): {count_immediate_neg:,}")
+    return first_neg_per_pair
+
+
+def show_directed_retaliation_origin(valid_pairs):
+    """For each directed pair (A -> B), check whether its first negative link follows a negative link from B -> A."""
+    neg_links = valid_pairs[valid_pairs["LINK_SENTIMENT"] == -1].copy()
+    first_directed_neg = neg_links.drop_duplicates(
+        subset=["SOURCE_SUBREDDIT", "TARGET_SUBREDDIT"],
+        keep="first"
+    )[["SOURCE_SUBREDDIT", "TARGET_SUBREDDIT", "time"]].copy()
+
+    first_directed_neg.rename(
+        columns={
+            "SOURCE_SUBREDDIT": "src",
+            "TARGET_SUBREDDIT": "tgt",
+            "time": "time_first_neg_A_to_B"
+        },
+        inplace=True
+    )
+
+    merged_directed = first_directed_neg.merge(
+        first_directed_neg,
+        left_on=["src", "tgt"],
+        right_on=["tgt", "src"],
+        how="left",
+        suffixes=("", "_opp")
+    )
+
+    merged_directed["follows_prior_negative"] = (
+        merged_directed["time_first_neg_A_to_B_opp"].notna() &
+        (merged_directed["time_first_neg_A_to_B_opp"] < merged_directed["time_first_neg_A_to_B"])
+    )
+
+    total_directed_neg = len(merged_directed)
+    follows_neg_count = merged_directed["follows_prior_negative"].sum()
+    first_strike_count = total_directed_neg - follows_neg_count
+
+    print(f"Total directed negative pairs (A -> B): {total_directed_neg:,}")
+    print(f"Follows an earlier negative link from B -> A (Retaliation): {follows_neg_count:,} ({follows_neg_count / total_directed_neg * 100:.2f}%)")
+    print(f"Does NOT follow an earlier negative link (First strike / Unprovoked): {first_strike_count:,} ({first_strike_count / total_directed_neg * 100:.2f}%)")
+    return merged_directed
+
+
+def show_location_transitions(valid_pairs):
+    """Compute and display location transition tables (body vs title) for reciprocal first-two links."""
+    first_two = valid_pairs[valid_pairs["position_in_pair"].isin([0, 1])].copy()
+    first_two["first_location"] = first_two.groupby(["pair_a", "pair_b"], sort=False)["LOCATION"].transform("first")
+    first_two["second_source"] = first_two.groupby(["pair_a", "pair_b"], sort=False)["SOURCE_SUBREDDIT"].transform("last")
+    first_two["second_location"] = first_two.groupby(["pair_a", "pair_b"], sort=False)["LOCATION"].transform("last")
+    first_two["second_sentiment"] = first_two.groupby(["pair_a", "pair_b"], sort=False)["LINK_SENTIMENT"].transform("last")
+
+    first_two = first_two.drop_duplicates(subset=["pair_a", "pair_b"], keep="first")
+    first_two = first_two[(first_two["first_source"] != first_two["second_source"])]
+
+    location_transition_table = pd.crosstab(
+        first_two["first_location"], first_two["second_location"], normalize="index"
+    ) * 100
+    print("\nTransition table for the location:")
+    display(location_transition_table.round(2))
+
+    negative_first_two = first_two[first_two["first_sentiment"] == -1]
+    positive_first_two = first_two[first_two["first_sentiment"] == 1]
+
+    negative_location_transition_table = pd.crosstab(
+        negative_first_two["first_location"], negative_first_two["second_location"], normalize="index"
+    ) * 100
+    print("\nTransition table for the location with negative first link:")
+    display(negative_location_transition_table.round(2))
+
+    positive_location_transition_table = pd.crosstab(
+        positive_first_two["first_location"], positive_first_two["second_location"], normalize="index"
+    ) * 100
+    print("\nTransition table for the location with positive first link:")
+    display(positive_location_transition_table.round(2))
+    return first_two
+
+
+def show_location_transitions_by_sentiment_pair(first_two):
+    """Break down reciprocal location transitions across all four (first_sentiment, second_sentiment) combinations."""
+    sentiment_cases = {
+        "negative_negative": (-1, -1),
+        "positive_positive": (1, 1),
+        "negative_positive": (-1, 1),
+        "positive_negative": (1, -1)
+    }
+    for case, (sent1, sent2) in sentiment_cases.items():
+        subset = first_two[
+            (first_two["first_sentiment"] == sent1) &
+            (first_two["second_sentiment"] == sent2)
+        ]
+        counts = pd.crosstab(subset["first_location"], subset["second_location"])
+        tables = pd.crosstab(subset["first_location"], subset["second_location"], normalize="index") * 100
+        print(f"\n{'='*50}")
+        print(f"CASE: {case}")
+        print(f"Number of interactions: {len(subset)}")
+        print("\nTransition counts:")
+        print(counts)
+        print("\nTransition percentages:")
+        print(tables)
+
+
+def cosine_similarity(a, b):
+    """Compute cosine similarity between two embedding vectors."""
+    a = np.array(a, dtype=float)
+    b = np.array(b, dtype=float)
+    return np.dot(a, b) / (np.linalg.norm(a) * np.linalg.norm(b))
+
+
+def add_embedding_similarity(valid_pairs, data_dir=Path("data/raw")):
+    """Load subreddit embeddings, merge with valid_pairs, and compute cosine similarity."""
+    path_emb = ensure_embedding_data(data_dir)
+    embeddings = pd.read_csv(path_emb, dtype="string", header=None)
+    embeddings.columns = ["subreddit"] + [f"emb_{i}" for i in range(300)]
+    embeddings["embedding"] = embeddings.iloc[:, 1:].apply(lambda row: row.tolist(), axis=1)
+    embeddings = embeddings[["subreddit", "embedding"]]
+
+    merged = valid_pairs.merge(embeddings, how="inner", left_on="SOURCE_SUBREDDIT", right_on="subreddit").rename(
+        columns={"embedding": "source_embedding"}
+    ).drop(columns=["subreddit"])
+    merged = merged.merge(embeddings, how="inner", left_on="TARGET_SUBREDDIT", right_on="subreddit").rename(
+        columns={"embedding": "target_embedding"}
+    ).drop(columns=["subreddit"])
+
+    merged["cosine_similarity"] = merged.apply(
+        lambda row: cosine_similarity(row["source_embedding"], row["target_embedding"]), axis=1
+    )
+    return merged
+
+
+def plot_similarity_by_sentiment(valid_pairs_emb):
+    """Plot KDE distributions of subreddit cosine similarity by link sentiment."""
+    plt.figure(figsize=(6.4, 4.8))
+    sns.kdeplot(
+        data=valid_pairs_emb,
+        x="cosine_similarity",
+        hue="LINK_SENTIMENT",
+        fill=True,
+        common_norm=False,
+        alpha=0.4
+    )
+    plt.xlabel("Cosine similarity")
+    plt.ylabel("Density")
+    plt.title("Cosine similarity distribution by link sentiment")
+    plt.show()
+
+
+def fit_similarity_logit(valid_pairs_emb):
+    """Fit a logistic regression predicting non-negative link sentiment from subreddit cosine similarity."""
+    valid_pairs_emb["binary"] = (valid_pairs_emb["LINK_SENTIMENT"] > 0).astype(int)
+    mod = smf.logit(formula="binary ~ cosine_similarity", data=valid_pairs_emb)
+    res = mod.fit()
+    print(res.summary())
+    return res

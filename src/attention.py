@@ -316,3 +316,35 @@ def run_triangles(table, links_by_target, links_by_source):
     return pd.DataFrame()
 
 
+
+
+def plot_ratio_bars(ratios):
+    """Plot after/before incoming link ratios for attacked B and control B' with 95% CI."""
+    plt.figure(figsize=(6, 4))
+    for i, (name, color) in enumerate([("B: after / before", RED), ("B': after / before", BLUE)]):
+        r = ratios.loc[name]
+        plt.bar(i, r.estimate, color=color)
+        plt.errorbar(i, r.estimate, yerr=[[r.estimate - r.low], [r.high - r.estimate]],
+                     fmt="none", color="black", capsize=5)
+    ax = plt.gca()
+    ax.axhline(1, color="k", lw=1, ls="--")
+    ax.set_xticks([0, 1], ["B (attacked)", "B' (control)"])
+    ax.set(title="Links in the 30 days after vs before", ylabel="After / before")
+    plt.tight_layout()
+    plt.show()
+
+
+def show_negative_share_comparison(ev_m, ct_m):
+    """Compare and plot the share of negative links in the 30 days after t0 between B and B'."""
+    neg = pd.DataFrame([share_ci(t.reset_index(), "post30_neg", "post30_n") for t in (ev_m, ct_m)],
+                       columns=["share", "low", "high"], index=["B (attacked)", "B' (control)"])
+    display(neg.round(3))
+    display(boot_share_diff(ev_m, ct_m, "post30_neg", "post30_n").round(3).to_frame("B minus B'").T)
+
+    fig, ax = plt.subplots(figsize=(5, 4))
+    for i, (name, color) in enumerate([("B (attacked)", RED), ("B' (control)", BLUE)]):
+        bar_with_ci(ax, [i], neg.loc[[name]], color, name, width=0.6)
+    ax.set_xticks([0, 1], ["B (attacked)", "B' (control)"])
+    ax.set(title="Share of negative links in the 30 days after", ylabel="Share of negative links")
+    plt.tight_layout()
+    plt.show()
