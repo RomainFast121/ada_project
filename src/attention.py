@@ -1,10 +1,6 @@
-from pathlib import Path
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
-import seaborn as sns
-import statsmodels.formula.api as smf
-from statsmodels.stats.proportion import proportion_confint
 from IPython.display import display
 
 BLUE, RED, GREY = "#1E67B5", "#D02F2F", "#7F7F7F"

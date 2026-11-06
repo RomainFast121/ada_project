@@ -16,13 +16,13 @@ These questions use different event samples. We will keep their denominators and
 
 ## Data and feasibility
 
-The two SNAP files contain 858,488 parsed hyperlink rows in total (about 688 MB on disk). Each row has a source and target subreddit, post ID, timestamp, sentiment label, and 86 text-derived features. Links in titles and bodies are stored separately. Our current analyses need the first five fields and retain title/body origin; the text features remain available if a later question needs them. We parse timestamps, check missing values and duplicate rows, remove self-links, and sort links before constructing unordered pairs while preserving direction. In the downloaded files, the label is either `-1` (negative) or `+1` (neutral or positive); 9.58% of links are negative. Details, checksums, and the source paper are in [dataset_information.md](dataset_information.md).
+We use three SNAP files: two hyperlink TSVs with 858,488 parsed links (about 688 MB combined), and one subreddit embedding CSV (about 145 MB). Each hyperlink row has a source and target subreddit, post ID, timestamp, sentiment label, and 86 text-derived features. Links in titles and bodies are stored separately. Our current analyses need the first five fields and retain title/body origin; the text features remain available if a later question needs them. We parse timestamps, check missing values and duplicate rows, remove self-links, and sort links before constructing unordered pairs while preserving direction. In the downloaded files, the label is either `-1` (negative) or `+1` (neutral or positive); 9.58% of links are negative. Details, checksums, and the source paper are in [dataset_information.md](dataset_information.md).
 
-The hyperlink network contains the links, timing, and sentiment needed for our core questions. For the exploratory similarity comparison, we also use SNAP subreddit embeddings, which cover only part of the network. Community subscriber counts or topic labels could add context later, but they are not required for these analyses.
+The network files supply the links, timing, and sentiment for our core questions. The embedding CSV contains 51,278 subreddit vectors with 300 values each. The notebook downloads it when missing, joins vectors by subreddit name, and computes cosine similarity only for links where both communities have vectors.
 
 ## Methods and initial analysis
 
-For origin, we order each pair's observed links and locate its first negative link. “First” always means first *in this dataset*. We compare first-link negativity with negativity that appears after recorded non-negative links, and check the earlier sentiment in the opposite direction. This analysis is included in the main results notebook alongside the other two chapters.
+For origin, we order each pair’s observed links and locate its first negative link. “First” always means first *in this dataset*. We compare first-link negativity with negativity after earlier non-negative links and check whether a negative link previously ran in the other direction. We also explore title/body placement, time to a second pair link, and embedding similarity. These comparisons are descriptive.
 
 For evolution, we select one second link per pair when the first was non-negative and 30 days of later data remain. We separate pairs whose first two links ran in the same direction from pairs that had already linked both ways. We measure the share with a reverse link, then the negative share among first reverse links. Logistic models include an interaction with prior direction and adjust for year and title/body location; confidence intervals use target-clustered standard errors. Varying the response window checks whether the pattern depends on the 30-day choice.
 
@@ -35,7 +35,7 @@ The [main initial-results notebook](result_P2.ipynb) presents the origin, evolut
 | When | Team milestone |
 | --- | --- |
 | **6 November (P2)** | Agree on shared definitions and submit the proposal, initial results notebook, and documented pipeline. |
-| **By 20 November** | Reconcile the origin analysis with the shared pipeline; review event selection, timing, and sensitivity to activity and observation windows. |
+| **By 20 November** | Review the integrated origin analysis, including event selection, timing, and sensitivity to activity and observation windows. |
 | **By 4 December** | Settle the main findings and limitations; select figures and examples that support one coherent story. |
 | **By 11 December** | Complete the extended notebook and a first public-facing data story; exchange edits across research lines. |
 | **18 December (P3)** | Final checks, add the published story URL to this README, and submit the repository. |
@@ -44,4 +44,4 @@ We will review the definitions, assumptions, figures, and writing together so th
 
 ## Use of generative AI
 
-OpenAI ChatGPT/Codex provided substantial assistance during this project. We used it to explore whether our ideas were feasible with the dataset, help develop and debug analysis code, and draft and revise parts of the interpretation. It also helped combine notebook sections developed separately by the team and edit their structure and wording for a consistent presentation. We selected the questions and methods to pursue and remain responsible for checking the data, code, figures, and conclusions and for explaining all submitted work.
+We used AI mainly to explore the feasibility of our ideas, assist with code writing and debugging, and combine analyses developed separately into a single notebook. We also used it to review and edit explanations so the structure, tone, and style are consistent. The team remains responsible for checking the code, results, and interpretations and for explaining the submitted work.
