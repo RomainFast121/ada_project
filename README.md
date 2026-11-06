@@ -41,3 +41,7 @@ The [main initial-results notebook](result_P2.ipynb) presents the origin, evolut
 | **18 December (P3)** | Final checks, add the published story URL to this README, and submit the repository. |
 
 We will review the definitions, assumptions, figures, and writing together so the final notebook and data story read as one project.
+
+## Use of generative AI
+
+OpenAI ChatGPT/Codex provided substantial assistance during this project. We used it to explore whether our ideas were feasible with the dataset, help develop and debug analysis code, and draft and revise parts of the interpretation. It also helped combine notebook sections developed separately by the team and edit their structure and wording for a consistent presentation. We selected the questions and methods to pursue and remain responsible for checking the data, code, figures, and conclusions and for explaining all submitted work.
